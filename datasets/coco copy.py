@@ -328,26 +328,11 @@ dataset_hook_register = {
 
 
 class CocoDetection(torchvision.datasets.CocoDetection):
- ###########################################################################################################
-    # --- 新的 __init__ 方法 ---
-    def __init__(self, img_folder, ann_file, transforms, return_masks, aux_target_hacks=None, query_bank_path="query_bank.pth"):
-        super(CocoDetection, self).__init__(img_folder, transforms)
-        self.coco = COCO(ann_file)
-        self.ids = list(sorted(self.coco.imgs.keys()))
+    def __init__(self, img_folder, ann_file, transforms, return_masks, aux_target_hacks=None):
+        super(CocoDetection, self).__init__(img_folder, ann_file)
         self._transforms = transforms
         self.prepare = ConvertCocoPolysToMask(return_masks)
         self.aux_target_hacks = aux_target_hacks
-
-        # --- 新增逻辑：加载全局查询样本库 ---
-        print("Initializing CocoDetection Dataloader...")
-        if query_bank_path and os.path.exists(query_bank_path):
-            print(f"Loading global query bank from {query_bank_path}...")
-            self.query_bank = torch.load(query_bank_path)
-            print("Query bank loaded successfully.")
-        else:
-            print(f"Warning: Query bank file not provided or not found. Image queries will not be used.")
-            self.query_bank = {} # 如果文件不存在，则使用空字典
-###########################################################################################################
 
     def change_hack_attr(self, hackclassname, attrkv_dict):
         target_class = dataset_hook_register[hackclassname]
@@ -366,60 +351,35 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         path = self.coco.loadImgs(id)[0]["file_name"]
         abs_path = os.path.join(self.root, path)
         return Image.open(abs_path).convert("RGB")
-    
-###########################################################################################################
-def __getitem__(self, idx):
-    # 1. 正常加载完整的、未经掩码的图像和标注
-    try:
-        img, target = super(CocoDetection, self).__getitem__(idx)
-    except Exception as e:
-        print(f"Error loading index {idx}: {e}")
-        return self.__getitem__(idx + 1 if idx + 1 < len(self) else 0)
 
-    image_id = self.ids[idx]
-    target = {'image_id': image_id, 'annotations': target}
-    img, target = self.prepare(img, target)
+    def __getitem__(self, idx):
+        """
+        Output:
+            - target: dict of multiple items
+                - boxes: Tensor[num_box, 4]. \
+                    Init type: x0,y0,x1,y1. unnormalized data.
+                    Final type: cx,cy,w,h. normalized data. 
+        """
+        try:
+            img, target = super(CocoDetection, self).__getitem__(idx)
+        except:
+            print("Error idx: {}".format(idx))
+            idx += 1
+            img, target = super(CocoDetection, self).__getitem__(idx)
+        image_id = self.ids[idx]
+        target = {'image_id': image_id, 'annotations': target}
+        img, target = self.prepare(img, target)
+        
+        if self._transforms is not None:
+            img, target = self._transforms(img, target)
 
-    # 2. 找到这张图片里出现了哪些类别
-    present_class_ids = set([anno['category_id'] for anno in target['annotations']])
-    
-    # 3. 从全局样本库中取出这些类别对应的查询样本
-    q_images_list = []
-    for cat_id in present_class_ids:
-        # 检查 self.coco.cats 是否存在这个 cat_id
-        if cat_id in self.coco.cats:
-            class_name = self.coco.cats[cat_id]['name']
-            if class_name in self.query_bank:
-                # extend 方法可以将一个列表中的所有元素添加到另一个列表中
-                q_images_list.extend(self.query_bank[class_name])
-    
-    # 4. 将查询图像列表（已经是Tensor了）打包到target中
-    target['image_q'] = q_images_list
-    
-    # 5. 对主图像和target字典进行变换
-    if self._transforms is not None:
-        img, target = self._transforms(img, target)
-    
-    return img, target
+        # convert to needed format
+        if self.aux_target_hacks is not None:
+            for hack_runner in self.aux_target_hacks:
+                target, img = hack_runner(target, img=img)
 
-# ... (保留 __len__ 和其他可能的方法) ...
+        return img, target
 
-
-# --- 确保你的 build 函数能传递 query_bank_path ---
-# 你可能需要修改 build 函数，让它可以接收并传递这个新参数
-def build(image_set, args, datasetinfo):
-# ... (原始 build 函数代码) ...
-
-dataset = CocoDetection(
-    img_folder, 
-    ann_file, 
-    transforms=make_coco_transforms(image_set, fix_size=args.fix_size, strong_aug=strong_aug, args=args), 
-    return_masks=args.masks,
-    aux_target_hacks=None,
-    query_bank_path=args.query_bank_path # 假设你的配置中有一个 query_bank_path 参数
-)
-return dataset
-###########################################################################################################
 
 def convert_coco_poly_to_mask(segmentations, height, width):
     masks = []

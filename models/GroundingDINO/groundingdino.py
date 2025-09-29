@@ -96,6 +96,15 @@ class GroundingDINO(nn.Module):
         self.max_text_len = 256
         self.sub_sentence_present = sub_sentence_present
 
+###########################################################################################################
+        #image queries pooling
+        self.pooling_q = nn.Parameter(torch.randn(1, hidden_dim))
+        self.attention_pooling = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=nheads, batch_first=True)
+
+        #image query to text query cross attention
+        self.img_text_cross_attention = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=nheads, batch_first=True)
+###########################################################################################################
+
         # setting query dim
         self.query_dim = query_dim
         assert query_dim == 4
@@ -213,7 +222,7 @@ class GroundingDINO(nn.Module):
     def init_ref_points(self, use_num_queries):
         self.refpoint_embed = nn.Embedding(use_num_queries, self.query_dim)
 
-    def forward(self, samples: NestedTensor, targets: List = None, **kw):
+    def forward(self, samples: NestedTensor, targets: List = None, image_q: NestedTensor = None, **kw):
         """The forward expects a NestedTensor, which consists of:
            - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
            - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
@@ -287,6 +296,39 @@ class GroundingDINO(nn.Module):
         }
 
 
+###########################################################################################################
+        # image_query
+        features_q = None
+        srcs_q = []
+        masks_q = []
+        poss_q = []
+        if image_q is not None:
+            image_q_batch = torch.stack(image_q, dim=0).to(samples.device)
+            features_q, poss_q = self.backbone(image_q_batch)
+            for l, feat in enumerate(features_q):
+                src, mask = feat.decompose()
+                srcs_q.append(self.input_proj[l](src))
+                masks_q.append(mask)
+            
+            src_q_flatten = [src.flatten(2).permute(0, 2, 1) for src in srcs_q]
+            key_value_src = torch.cat(src_q_flatten, dim=1)  #K,V
+            bs = image_q_batch.shape[0]
+            query_input = self.pooling_q.expand(bs, -1).unsqueeze(1) #Q
+
+            pooled_feature, _ = self.attention_pooling(
+                query_input, key_value_src, key_value_src
+            )  # bs, 1, hidden_dim
+
+            # image query to text query cross attention
+            img_feature_enhance, _ = self.img_text_cross_attention(
+                pooled_feature,
+                encoded_text,
+                encoded_text,
+                key_padding_mask=~text_token_mask,
+            )  # bs, 1, hidden_dim
+###########################################################################################################
+
+
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         features, poss = self.backbone(samples)
@@ -312,8 +354,25 @@ class GroundingDINO(nn.Module):
                 poss.append(pos_l)
 
         input_query_bbox = input_query_label = attn_mask = dn_meta = None
+
+###########################################################################################################
+        query_dict = None
+
+        if 'img_feature_enhance' in locals() and img_feature_enhance is not None:
+            bs = img_feature_enhance.shape[0]
+            new_text_token_mask = torch.ones((bs, 1), dtype=torch.bool, device=samples.device)
+            
+            new_text_dict = {
+                "encoded_text": img_feature_enhance,
+                "text_token_mask": new_text_token_mask
+            }
+            query_dict = new_text_dict
+        else:
+            query_dict = text_dict
+###########################################################################################################
+
         hs, reference, hs_enc, ref_enc, init_box_proposal = self.transformer(
-            srcs, masks, input_query_bbox, poss, input_query_label, attn_mask, text_dict
+            srcs, masks, input_query_bbox, poss, input_query_label, attn_mask, query_dict
         )
 
         
