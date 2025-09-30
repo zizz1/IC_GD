@@ -329,24 +329,22 @@ dataset_hook_register = {
 
 class CocoDetection(torchvision.datasets.CocoDetection):
  ###########################################################################################################
-    # --- 新的 __init__ 方法 ---
-    def __init__(self, img_folder, ann_file, transforms, return_masks, aux_target_hacks=None, query_bank_path="query_bank.pth"):
-        super(CocoDetection, self).__init__(img_folder, transforms)
-        self.coco = COCO(ann_file)
-        self.ids = list(sorted(self.coco.imgs.keys()))
+    def __init__(self, img_folder, ann_file, transforms, return_masks, aux_target_hacks=None, query_bank_path=None):
+        # 关键修正：调用父类时，正确传递 img_folder 和 ann_file
+        super(CocoDetection, self).__init__(img_folder, ann_file)
+        
+        # 将 transforms 保存到 _transforms 成员变量中，以便 __getitem__ 使用
         self._transforms = transforms
+        
         self.prepare = ConvertCocoPolysToMask(return_masks)
         self.aux_target_hacks = aux_target_hacks
 
-        # --- 新增逻辑：加载全局查询样本库 ---
-        print("Initializing CocoDetection Dataloader...")
+        # 这部分是我们为你的新功能准备的逻辑，保留下来没有坏处
+        # 在当前分支上，query_bank_path 会是 None，所以会创建一个空字典
         if query_bank_path and os.path.exists(query_bank_path):
-            print(f"Loading global query bank from {query_bank_path}...")
             self.query_bank = torch.load(query_bank_path)
-            print("Query bank loaded successfully.")
         else:
-            print(f"Warning: Query bank file not provided or not found. Image queries will not be used.")
-            self.query_bank = {} # 如果文件不存在，则使用空字典
+            self.query_bank = {}
 ###########################################################################################################
 
     def change_hack_attr(self, hackclassname, attrkv_dict):
@@ -410,15 +408,15 @@ def __getitem__(self, idx):
 def build(image_set, args, datasetinfo):
 # ... (原始 build 函数代码) ...
 
-dataset = CocoDetection(
-    img_folder, 
-    ann_file, 
-    transforms=make_coco_transforms(image_set, fix_size=args.fix_size, strong_aug=strong_aug, args=args), 
-    return_masks=args.masks,
-    aux_target_hacks=None,
-    query_bank_path=args.query_bank_path # 假设你的配置中有一个 query_bank_path 参数
-)
-return dataset
+    dataset = CocoDetection(
+        img_folder, 
+        ann_file, 
+        transforms=make_coco_transforms(image_set, fix_size=args.fix_size, strong_aug=strong_aug, args=args), 
+        return_masks=args.masks,
+        aux_target_hacks=None,
+        query_bank_path=args.query_bank_path # 假设你的配置中有一个 query_bank_path 参数
+    )
+    return dataset
 ###########################################################################################################
 
 def convert_coco_poly_to_mask(segmentations, height, width):

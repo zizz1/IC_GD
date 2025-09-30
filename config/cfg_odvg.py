@@ -35,7 +35,7 @@ dn_bbox_coef = 1.0
 embed_init_tgt = True
 dn_labelbook_size = 91
 max_text_len = 256
-text_encoder_type = "bert-base-uncased"
+text_encoder_type = "./weights/bert"
 use_text_enhancer = True
 use_fusion_layer = True
 use_checkpoint = True
@@ -116,3 +116,17 @@ ema_epoch = 0
 use_detached_boxes_dec_out = False
 use_coco_eval = True
 dn_scalar = 100
+
+label_list = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 
+    'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 
+    'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 
+    'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 
+    'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 
+    'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 
+    'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 
+    'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 
+    'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 
+    'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 
+    'toothbrush'
+]
